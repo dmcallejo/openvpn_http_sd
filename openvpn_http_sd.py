@@ -13,6 +13,8 @@ LOG = logging.getLogger()
 OPENVPN_PATH = '/etc/openvpn/server/'
 OPENVPN_FILES = []
 TARGET_PORTS = ['9100']
+IGNORE_FILE = '/etc/openvpn_http_sd.ignore'
+IGNORED_HOSTS = []
 
 
 def find_log_files(directory):
@@ -22,6 +24,16 @@ def find_log_files(directory):
             if file.endswith(".log"):
                 log_files.append(os.path.join(root, file))
     return log_files
+
+
+def read_ignore_file(file_path):
+    try:
+        with open(file_path, 'r') as file:
+            lines = [line.strip() for line in file]
+    except FileNotFoundError:
+        # Return an empty list if the file doesn't exist
+        lines = []
+    return lines
 
 
 @routes.get('/')
@@ -54,7 +66,7 @@ def parse_file(filepath):
             if parts[0] == "CLIENT_LIST":
                 # Extract the virtual address and add it to the list
                 virtual_address = parts[3]
-                if virtual_address:  # Ensure the address is not empty
+                if virtual_address and virtual_address not in IGNORED_HOSTS:  # Ensure the address is not empty
                     for port in TARGET_PORTS:
                         virtual_addresses.append(f"{virtual_address}:{port}")
 
@@ -102,6 +114,11 @@ def create_arg_parser():
                            default=os.environ.get('STATUS_PATH', OPENVPN_PATH),
                            help=f'Path for OpenVPN status file path. Defaults to {OPENVPN_PATH}')
 
+    # Argument for one path for openvpn ignore hosts file
+    argparser.add_argument('--ignore-file', required=False,
+                           default=os.environ.get('IGNORE_FILE', IGNORE_FILE),
+                           help=f'Path for hosts ignore file. Defaults to {IGNORE_FILE}')
+
     # Argument for one or more ports for "targets"
     argparser.add_argument('--ports', nargs='+', required=False,
                            default=os.environ.get('PORTS', '9100').split(),
@@ -132,6 +149,7 @@ if __name__ == '__main__':
 
     LOG.debug(f"Status Files: {args.status_files}")
     LOG.debug(f"Status Path: {args.status_path}")
+    LOG.debug(f"Ignore file: {args.ignore_file}")
     LOG.debug(f"Ports: {args.ports}")
     LOG.debug(f"Log Verbosity: {args.log_verbosity}")
     LOG.debug(f"Webserver Port:{args.webserver_port}")
@@ -144,6 +162,7 @@ if __name__ == '__main__':
         OPENVPN_FILES = args.status_files
         LOG.info(f"Watching {OPENVPN_FILES} for changes.")
 
+    IGNORED_HOSTS = read_ignore_file(args.ignore_file)
     TARGET_PORTS = args.ports
 
     app = web.Application(logger=LOG.getChild("aiohttp"))
