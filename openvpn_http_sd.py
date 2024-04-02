@@ -58,7 +58,7 @@ async def discover(request):
         log_files = OPENVPN_FILES
 
     for log_file in log_files:
-        data.append(parse_file(log_file))
+        data.extend(parse_file(log_file))
 
     return web.json_response(data)
 
