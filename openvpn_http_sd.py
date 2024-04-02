@@ -2,9 +2,11 @@
 
 import logging
 
+import toml
 from aiohttp import web
 import argparse
 import os
+import ipaddress
 
 
 routes = web.RouteTableDef()
@@ -12,8 +14,8 @@ LOG = logging.getLogger()
 
 OPENVPN_PATH = '/etc/openvpn/server/'
 OPENVPN_FILES = []
-TARGET_PORTS = ['9100']
-IGNORE_FILE = '/etc/openvpn_http_sd.ignore'
+CONF_FILE = '/etc/openvpn_http_sd.toml'
+CONF = {}
 IGNORED_HOSTS = []
 
 
@@ -26,14 +28,25 @@ def find_log_files(directory):
     return log_files
 
 
-def read_ignore_file(file_path):
+def read_conf_file(file_path):
     try:
-        with open(file_path, 'r') as file:
-            lines = [line.strip() for line in file]
+        with open(file_path, 'r') as f:
+
+            conf = toml.load(f)
+            for host_name in conf['hosts']:
+                host = conf['hosts'][host_name]
+                if "ip_ranges" in host:
+                    new_ip_ranges = []
+                    for ip_range in host['ip_ranges']:
+                        new_ip_ranges.append(ipaddress.ip_network(ip_range))
+                    conf['hosts'][host_name]['ip_ranges'] = new_ip_ranges
+                if "ignored" in host:
+                    for address in host['ignored']:
+                        IGNORED_HOSTS.append(address)
     except FileNotFoundError:
         # Return an empty list if the file doesn't exist
-        lines = []
-    return lines
+        conf = {}
+    return conf
 
 
 @routes.get('/')
@@ -65,17 +78,39 @@ def parse_file(filepath):
             # Check if the line is a CLIENT_LIST line
             if parts[0] == "CLIENT_LIST":
                 # Extract the virtual address and add it to the list
-                virtual_address = parts[3]
-                if virtual_address and virtual_address not in IGNORED_HOSTS:  # Ensure the address is not empty
-                    for port in TARGET_PORTS:
-                        virtual_addresses.append(f"{virtual_address}:{port}")
+                client_data = parse_client_line(parts)
+                if client_data:
+                    client_data['labels'] = client_data['labels'] | labels
+                    virtual_addresses.append(client_data)
+                else:
+                    continue
 
-    # Create a JSON structure
-    data = {
-        "targets": virtual_addresses,
-        "labels": labels
-    }
-    return data
+    return virtual_addresses
+
+
+def parse_client_line(client_line_parts: list):
+    virtual_address = client_line_parts[3]
+    if virtual_address in IGNORED_HOSTS:
+        return None
+    label_name = client_line_parts[1]
+    public_ip = client_line_parts[2].split(':')[0]
+    for host_name in CONF['hosts']:
+        host = CONF['hosts'][host_name]
+        if "ip_ranges" in host:
+            for ip_range in host['ip_ranges']:
+                if ipaddress.ip_address(virtual_address) in ip_range:
+                    targets = []
+                    for port in host['ports']:
+                        targets.append(f"{virtual_address}:{port}")
+                    data = {
+                        "targets": targets,
+                        "labels": {
+                            "__meta_public_ip": public_ip,
+                            "group": host_name,
+                            "name": label_name
+                        }
+                    }
+                    return data
 
 
 @routes.get('/healthz')
@@ -115,14 +150,9 @@ def create_arg_parser():
                            help=f'Path for OpenVPN status file path. Defaults to {OPENVPN_PATH}')
 
     # Argument for one path for openvpn ignore hosts file
-    argparser.add_argument('--ignore-file', required=False,
-                           default=os.environ.get('IGNORE_FILE', IGNORE_FILE),
-                           help=f'Path for hosts ignore file. Defaults to {IGNORE_FILE}')
-
-    # Argument for one or more ports for "targets"
-    argparser.add_argument('--ports', nargs='+', required=False,
-                           default=os.environ.get('PORTS', '9100').split(),
-                           help='Ports for targets. Defaults to 9100')
+    argparser.add_argument('--conf-file', required=False,
+                           default=os.environ.get('CONF_FILE', CONF_FILE),
+                           help=f'Path for app config file. Defaults to {CONF_FILE}')
 
     # Argument for log verbosity modifier
     argparser.add_argument('--log-verbosity', type=str, required=False,
@@ -149,8 +179,7 @@ if __name__ == '__main__':
 
     LOG.debug(f"Status Files: {args.status_files}")
     LOG.debug(f"Status Path: {args.status_path}")
-    LOG.debug(f"Ignore file: {args.ignore_file}")
-    LOG.debug(f"Ports: {args.ports}")
+    LOG.debug(f"Conf file: {args.conf_file}")
     LOG.debug(f"Log Verbosity: {args.log_verbosity}")
     LOG.debug(f"Webserver Port:{args.webserver_port}")
     LOG.debug(f"Webserver Host: {args.webserver_host}")
@@ -162,8 +191,7 @@ if __name__ == '__main__':
         OPENVPN_FILES = args.status_files
         LOG.info(f"Watching {OPENVPN_FILES} for changes.")
 
-    IGNORED_HOSTS = read_ignore_file(args.ignore_file)
-    TARGET_PORTS = args.ports
+    CONF = read_conf_file(args.conf_file)
 
     app = web.Application(logger=LOG.getChild("aiohttp"))
     app.add_routes(routes)
