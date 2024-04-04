@@ -1,12 +1,14 @@
-[hosts]
+[groups]
 
 # Group for development machines
-[hosts.development]
+[groups.development]
 ip_ranges = ["10.8.0.0/24"]
-ignored = ["10.8.0.10", "10.8.0.120"]
+blacklist = ["10.8.0.10", "10.8.0.120"]
 ports = ["9100"]
 
 # Group for production machines
-[hosts.production]
+[groups.production]
 ip_ranges = ["10.10.0.0/24"]
 ports = ["9100"]
+whitelist = ["10.10.0.2", "10.10.0.3"]
+labels = { Environment = "production" }

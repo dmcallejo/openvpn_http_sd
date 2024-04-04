@@ -16,7 +16,6 @@ OPENVPN_PATH = '/etc/openvpn/server/'
 OPENVPN_FILES = []
 CONF_FILE = '/etc/openvpn_http_sd.toml'
 CONF = {}
-IGNORED_HOSTS = []
 
 
 def find_log_files(directory):
@@ -33,16 +32,13 @@ def read_conf_file(file_path):
         with open(file_path, 'r') as f:
 
             conf = toml.load(f)
-            for host_name in conf['hosts']:
-                host = conf['hosts'][host_name]
-                if "ip_ranges" in host:
+            for group_name in conf['groups']:
+                group = conf['groups'][group_name]
+                if "ip_ranges" in group:
                     new_ip_ranges = []
-                    for ip_range in host['ip_ranges']:
+                    for ip_range in group['ip_ranges']:
                         new_ip_ranges.append(ipaddress.ip_network(ip_range))
-                    conf['hosts'][host_name]['ip_ranges'] = new_ip_ranges
-                if "ignored" in host:
-                    for address in host['ignored']:
-                        IGNORED_HOSTS.append(address)
+                    conf['groups'][group_name]['ip_ranges'] = new_ip_ranges
     except FileNotFoundError:
         # Return an empty list if the file doesn't exist
         conf = {}
@@ -90,24 +86,31 @@ def parse_file(filepath):
 
 def parse_client_line(client_line_parts: list):
     virtual_address = client_line_parts[3]
-    if virtual_address in IGNORED_HOSTS:
-        return None
     label_name = client_line_parts[1]
     public_ip = client_line_parts[2].split(':')[0]
-    for host_name in CONF['hosts']:
-        host = CONF['hosts'][host_name]
-        if "ip_ranges" in host:
-            for ip_range in host['ip_ranges']:
+    for group_name in CONF['groups']:
+        group = CONF['groups'][group_name]
+        labels = {}
+        if "labels" in group:
+            for label in group['labels']:
+                labels[label] = group['labels'][label]
+        if "ip_ranges" in group:
+            for ip_range in group['ip_ranges']:
                 if ipaddress.ip_address(virtual_address) in ip_range:
+                    # Skip host if present in group blacklist or not present in group whitelist
+                    if (('blacklist' in group and virtual_address in group['blacklist']) or
+                            ('whitelist' in group and virtual_address not in group['whitelist'])):
+                        continue
                     targets = []
-                    for port in host['ports']:
+                    for port in group['ports']:
                         targets.append(f"{virtual_address}:{port}")
                     data = {
                         "targets": targets,
                         "labels": {
                             "__meta_public_ip": public_ip,
-                            "group": host_name,
-                            "name": label_name
+                            "group": group_name,
+                            "name": label_name,
+                            **labels
                         }
                     }
                     return data
@@ -149,7 +152,7 @@ def create_arg_parser():
                            default=os.environ.get('STATUS_PATH', OPENVPN_PATH),
                            help=f'Path for OpenVPN status file path. Defaults to {OPENVPN_PATH}')
 
-    # Argument for one path for openvpn ignore hosts file
+    # Argument for one path for openvpn groups file
     argparser.add_argument('--conf-file', required=False,
                            default=os.environ.get('CONF_FILE', CONF_FILE),
                            help=f'Path for app config file. Defaults to {CONF_FILE}')
