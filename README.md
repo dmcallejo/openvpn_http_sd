@@ -15,6 +15,8 @@ options:
                         Paths to OpenVPN status files
   --status-path STATUS_PATH
                         Path for OpenVPN status file path. Defaults to /etc/openvpn/server/
+  --status-file-extension STATUS_FILE_EXTENSION
+                        File extension for OpenVPN status file. Defaults to log
   --conf-file CONF_FILE
                         Path for app config file. Defaults to /etc/openvpn_http_sd.toml
   --log-verbosity LOG_VERBOSITY

@@ -13,6 +13,7 @@ routes = web.RouteTableDef()
 LOG = logging.getLogger()
 
 OPENVPN_PATH = '/etc/openvpn/server/'
+OPENVPN_FILE_EXTENSION = 'log'
 OPENVPN_FILES = []
 CONF_FILE = '/etc/openvpn_http_sd.toml'
 CONF = {}
@@ -22,7 +23,7 @@ def find_log_files(directory):
     log_files = []
     for root, dirs, files in os.walk(directory):
         for file in files:
-            if file.endswith(".log"):
+            if file.endswith(f".{OPENVPN_FILE_EXTENSION}"):
                 log_files.append(os.path.join(root, file))
     return log_files
 
@@ -152,6 +153,11 @@ def create_arg_parser():
                            default=os.environ.get('STATUS_PATH', OPENVPN_PATH),
                            help=f'Path for OpenVPN status file path. Defaults to {OPENVPN_PATH}')
 
+    # Argument for one path for openvpn status path
+    argparser.add_argument('--status-file-extension', required=False,
+                           default=os.environ.get('STATUS_FILE_EXTENSION', OPENVPN_FILE_EXTENSION),
+                           help=f'File extension for OpenVPN status file. Defaults to {OPENVPN_FILE_EXTENSION}')
+    
     # Argument for one path for openvpn groups file
     argparser.add_argument('--conf-file', required=False,
                            default=os.environ.get('CONF_FILE', CONF_FILE),
@@ -194,6 +200,10 @@ if __name__ == '__main__':
         OPENVPN_FILES = args.status_files
         LOG.info(f"Watching {OPENVPN_FILES} for changes.")
 
+    if len(args.status_file_extension) != 0:
+        OPENVPN_FILE_EXTENSION = args.status_file_extension
+        LOG.debug(f"Looking for files with {OPENVPN_FILE_EXTENSION} file extension.")
+    
     CONF = read_conf_file(args.conf_file)
 
     app = web.Application(logger=LOG.getChild("aiohttp"))
