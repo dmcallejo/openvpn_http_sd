@@ -202,7 +202,7 @@ if __name__ == '__main__':
 
     if len(args.status_file_extension) != 0:
         OPENVPN_FILE_EXTENSION = args.status_file_extension
-        LOG.info(f"Looking for files with {OPENVPN_FILE_EXTENSION} file extension.")
+        LOG.debug(f"Looking for files with {OPENVPN_FILE_EXTENSION} file extension.")
     
     CONF = read_conf_file(args.conf_file)
 
